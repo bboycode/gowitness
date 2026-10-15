@@ -56,4 +56,44 @@ const getData = async (
   }
 };
 
-export { getWappalyzerData, getData };
+const getDownloadFileName = (contentDisposition: string | null, fallback: string): string => {
+  if (!contentDisposition) {
+    return fallback;
+  }
+
+  const matches = contentDisposition.match(/filename="?([^";]+)"?/i);
+  if (!matches || matches.length < 2) {
+    return fallback;
+  }
+
+  return matches[1];
+};
+
+const downloadDomainsByTechnology = async (technology: string) => {
+  const query = new URLSearchParams({ technology });
+  const url = `${api.endpoints.base.path}${api.endpoints.exportdomains.path}?${query.toString()}`;
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`HTTP Error: ${response.status}`);
+  }
+
+  const fileName = getDownloadFileName(
+    response.headers.get("content-disposition"),
+    `${technology.toLowerCase()}-domains.txt`
+  );
+
+  const blob = await response.blob();
+  const objectUrl = window.URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.URL.revokeObjectURL(objectUrl);
+};
+
+export { getWappalyzerData, getData, downloadDomainsByTechnology };

@@ -41,6 +41,10 @@ const endpoints = {
     path: `/results/technology`,
     returnas: {} as technologylist
   },
+  exportdomains: {
+    path: `/results/export/domains`,
+    returnas: "" as string
+  },
 
   // post endpoints
   search: {

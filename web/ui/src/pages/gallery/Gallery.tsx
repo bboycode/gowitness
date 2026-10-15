@@ -6,7 +6,7 @@ import { WideSkeleton } from "@/components/loading";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertOctagonIcon, BanIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, ExternalLinkIcon,
-  FilterIcon, GroupIcon, ShieldCheckIcon, XIcon
+  DownloadIcon, FilterIcon, GroupIcon, ShieldCheckIcon, XIcon
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,10 +16,11 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { cn } from "@/lib/utils";
 import * as api from "@/lib/api/api";
 import * as apitypes from "@/lib/api/types";
-import { getData, getWappalyzerData } from "./data";
+import { downloadDomainsByTechnology, getData, getWappalyzerData } from "./data";
 import { getIconUrl, getStatusColor } from "@/lib/common";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { toast } from "@/hooks/use-toast";
 
 
 const GalleryPage = () => {
@@ -28,6 +29,7 @@ const GalleryPage = () => {
   const [technology, setTechnology] = useState<apitypes.technologylist>();
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
 
   const [searchParams, setSearchParams] = useSearchParams();
   // pagination
@@ -71,74 +73,117 @@ const GalleryPage = () => {
 
   const handlePageChange = (newPage: number) => {
     setSearchParams(prev => {
-      prev.set("page", newPage.toString());
-      return prev;
+      const next = new URLSearchParams(prev);
+      next.set("page", newPage.toString());
+      return next;
     });
   };
 
   const handleLimitChange = (newLimit: string) => {
     setSearchParams(prev => {
-      prev.set("limit", newLimit);
-      return prev;
+      const next = new URLSearchParams(prev);
+      next.set("limit", newLimit);
+      return next;
     });
   };
 
   const handleTechnologyChange = (tech: string) => {
     const field = "technologies";
     setSearchParams(prev => {
-      const currentTechnology = prev.get(field)?.split(",").filter(Boolean) || [];
+      const next = new URLSearchParams(prev);
+      const currentTechnology = next.get(field)?.split(",").filter(Boolean) || [];
 
       if (currentTechnology.includes(tech)) {
         const updatedTechnology = currentTechnology.filter(s => s !== tech);
-        prev.set(field, updatedTechnology.join(","));
+        next.set(field, updatedTechnology.join(","));
       } else {
         currentTechnology.push(tech);
-        prev.set(field, currentTechnology.join(","));
+        next.set(field, currentTechnology.join(","));
       }
 
-      return prev;
+      next.set("page", "1");
+      return next;
     });
-    handlePageChange(1); // back to page 1
   };
 
   const handleStatusFilter = (status: string) => {
     setSearchParams(prev => {
-      const currentStatus = prev.get("status")?.split(",").filter(Boolean) || [];
+      const next = new URLSearchParams(prev);
+      const currentStatus = next.get("status")?.split(",").filter(Boolean) || [];
 
       if (currentStatus.includes(status)) {
         const updatedStatus = currentStatus.filter(s => s !== status);
-        prev.set("status", updatedStatus.join(","));
+        next.set("status", updatedStatus.join(","));
       } else {
         currentStatus.push(status);
-        prev.set("status", currentStatus.join(","));
+        next.set("status", currentStatus.join(","));
       }
 
-      return prev;
+      next.set("page", "1");
+      return next;
     });
   };
 
   const handleGroupBySimilar = () => {
     setSearchParams(prev => {
-      prev.set("perception", (!perceptionGroup).toString());
-      return prev;
+      const next = new URLSearchParams(prev);
+      next.set("perception", (!perceptionGroup).toString());
+      next.set("page", "1");
+      return next;
     });
   };
 
   const handleToggleShowFailed = () => {
     setSearchParams(prev => {
-      prev.set("failed", (!showFailed).toString());
-      return prev;
+      const next = new URLSearchParams(prev);
+      next.set("failed", (!showFailed).toString());
+      next.set("page", "1");
+      return next;
     });
+  };
+
+  const selectedTechnologies = useMemo(
+    () => technologyFilter.split(',').filter(Boolean),
+    [technologyFilter]
+  );
+
+  const handleExportDomains = async () => {
+    if (selectedTechnologies.length !== 1) {
+      toast({
+        title: "Select one technology",
+        description: "Please select exactly one technology filter before exporting.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const selectedTechnology = selectedTechnologies[0];
+      await downloadDomainsByTechnology(selectedTechnology);
+
+      toast({
+        title: "Export complete",
+        description: `Downloaded domains for ${selectedTechnology}.`,
+      });
+    } catch (err) {
+      toast({
+        title: "Export failed",
+        description: `Failed to export domains: ${err}`,
+        variant: "destructive",
+      });
+    } finally {
+      setExporting(false);
+    }
   };
 
   const sortedTechnologies = useMemo(() => {
     if (!technology) return [];
-    const selectedTechnologies = technologyFilter.split(',').filter(Boolean);
     return [
       ...selectedTechnologies,
       ...technology.technologies.filter(tech => !selectedTechnologies.includes(tech))
     ];
-  }, [technology, technologyFilter]);
+  }, [technology, selectedTechnologies]);
 
   const renderPageButtons = (visible: number) => {
     const pageButtons = [];
@@ -293,7 +338,7 @@ const GalleryPage = () => {
                         <CheckIcon
                           className={cn(
                             "mr-2 h-4 w-4",
-                            technologyFilter.includes(tech) ? "opacity-100" : "opacity-0"
+                            selectedTechnologies.includes(tech) ? "opacity-100" : "opacity-0"
                           )}
                         />
                         {tech}
@@ -304,6 +349,15 @@ const GalleryPage = () => {
               </Command>
             </PopoverContent>
           </Popover>
+          <Button
+            variant="outline"
+            onClick={handleExportDomains}
+            disabled={selectedTechnologies.length !== 1 || exporting}
+            title="Export domains for the selected technology"
+          >
+            <DownloadIcon className="mr-2 h-4 w-4" />
+            {exporting ? "Exporting..." : "Export Domains"}
+          </Button>
           <Button
             variant={statusFilter.includes("200") ? "secondary" : "outline"}
             onClick={() => handleStatusFilter("200")}
